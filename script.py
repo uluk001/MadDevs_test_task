@@ -41,11 +41,10 @@ class HTMLMessageSplitter(HTMLParser):
             if not self.tag_parts and not self.text_parts and self.current_fragment:
                 self._save_fragment()
 
-
     def _add_text(self, text, is_tag=False):
         while text:
             available_space = self.max_len - len(self.current_fragment)
-            
+
             if is_tag:
                 self.current_fragment += text
                 text = ""
@@ -56,15 +55,15 @@ class HTMLMessageSplitter(HTMLParser):
                 else:
                     space_index = text.rfind(" ", 0, available_space)
                     if space_index != -1:
-                        self.current_fragment += text[:space_index + 1]
-                        text = text[space_index + 1:]
+                        self.current_fragment += text[: space_index + 1]
+                        text = text[space_index + 1 :]
                     else:
                         if self._inside_tag():
                             self._save_fragment()
                             continue
                         self.current_fragment += text[:available_space]
                         text = text[available_space:]
-            
+
             if len(self.current_fragment) == self.max_len:
                 self._save_fragment()
 
@@ -73,8 +72,7 @@ class HTMLMessageSplitter(HTMLParser):
                 raise ValueError(error_message)
 
     def _inside_tag(self):
-        return self.current_fragment.count('<') > self.current_fragment.count('>')
-
+        return self.current_fragment.count("<") > self.current_fragment.count(">")
 
     def _save_fragment(self):
         self.fragments.append(self.current_fragment)
