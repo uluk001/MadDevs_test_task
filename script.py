@@ -1,60 +1,93 @@
 from html.parser import HTMLParser
-from bs4 import BeautifulSoup
 
-def split_message(html_message, max_len):
-    def tokenize_html(html):
-        tokens = []
-        parser = HTMLParser()
-        parser.handle_starttag = lambda tag, attrs: tokens.append(('start', tag, attrs))
-        parser.handle_endtag = lambda tag: tokens.append(('end', tag))
-        parser.handle_data = lambda data: tokens.append(('data', data))
-        parser.feed(html)
-        return tokens
 
-    tokens = tokenize_html(html_message)
+class HTMLMessageSplitter(HTMLParser):
+    def __init__(self, max_len):
+        super().__init__()
+        self.max_len = max_len
+        self.fragments = []
+        self.current_fragment = ""
+        self.tag_stack = []
+        self.text_parts = []
+        self.tag_parts = []
 
-    current_fragment = ''
-    open_tags = []
+    def handle_starttag(self, tag, attrs):
+        tag_text = f"<{tag}>"
+        self.tag_parts.append(tag_text)
+        self.tag_stack.append(tag)
 
-    for token in tokens:
-        token_type, *token_content = token
+    def handle_endtag(self, tag):
+        self.tag_stack.pop()
+        tag_text = f"</{tag}>"
+        self.tag_parts.append(tag_text)
 
-        if token_type == 'start':
-            tag, attrs = token_content
-            attrs_str = ''.join(' {}="{}"'.format(k, v) for k, v in attrs)
-            tag_str = "<{}{}>".format(tag, attrs_str)
-            if len(current_fragment) + len(tag_str) > max_len:
-                if current_fragment:
-                    yield current_fragment
-                    current_fragment = ''
+    def handle_startendtag(self, tag, attrs):
+        tag_text = f"<{tag}/>"
+        self.tag_parts.append(tag_text)
+
+    def handle_data(self, data):
+        self.text_parts.append(data)
+
+    def _process_parts(self):
+        while self.text_parts or self.tag_parts:
+            if self.tag_parts:
+                tag_text = self.tag_parts.pop(0)
+                self._add_text(tag_text, is_tag=True)
+
+            if self.text_parts:
+                text = self.text_parts.pop(0)
+                self._add_text(text)
+
+            if not self.tag_parts and not self.text_parts and self.current_fragment:
+                self._save_fragment()
+
+
+    def _add_text(self, text, is_tag=False):
+        while text:
+            available_space = self.max_len - len(self.current_fragment)
+            
+            if is_tag:
+                self.current_fragment += text
+                text = ""
+            else:
+                if len(text) <= available_space:
+                    self.current_fragment += text
+                    text = ""
                 else:
-                    raise ValueError(f"Тег слишком длинный: {tag_str}")
-            current_fragment += tag_str
-            open_tags.append(tag)
-        
-        elif token_type == 'end':
-            tag = token_content[0]
-            tag_str = "</{}>".format(tag)
-            if len(current_fragment) + len(tag_str) > max_len:
-                yield current_fragment
-                current_fragment = ''
-            current_fragment += tag_str
-            open_tags.pop()
-        
-        elif token_type == 'data':
-            data = token_content[0]
-            while data:
-                available_space = max_len - len(current_fragment)
-                if available_space <= 0:
-                    yield current_fragment
-                    current_fragment = ''
-                    available_space = max_len
-                chunk = data[:available_space]
-                if not chunk:
-                    raise ValueError("Текст слишком длинный и не умещается в максимальную длину фрагмента")
-                current_fragment += chunk
-                data = data[available_space:]
-    
-    if current_fragment:
-        yield current_fragment
+                    space_index = text.rfind(" ", 0, available_space)
+                    if space_index != -1:
+                        self.current_fragment += text[:space_index + 1]
+                        text = text[space_index + 1:]
+                    else:
+                        if self._inside_tag():
+                            self._save_fragment()
+                            continue
+                        self.current_fragment += text[:available_space]
+                        text = text[available_space:]
+            
+            if len(self.current_fragment) == self.max_len:
+                self._save_fragment()
 
+            if len(text) > self.max_len and not is_tag:
+                error_message = f"Text too long to fit in max_len: {text}"
+                raise ValueError(error_message)
+
+    def _inside_tag(self):
+        return self.current_fragment.count('<') > self.current_fragment.count('>')
+
+
+    def _save_fragment(self):
+        self.fragments.append(self.current_fragment)
+        self.current_fragment = ""
+        for tag in reversed(self.tag_stack):
+            self.current_fragment += f"<{tag}>"
+
+    def feed(self, data):
+        super().feed(data)
+        self._process_parts()
+
+
+def split_message(text, max_len):
+    splitter = HTMLMessageSplitter(max_len)
+    splitter.feed(text)
+    return splitter.fragments
