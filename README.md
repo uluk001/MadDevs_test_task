@@ -29,8 +29,6 @@ pip install -r requirements.txt
 
 ## Usage
 
-## Usage
-
 To use this HTML Message Splitter, you can follow these steps:
 
 1. **Import the Function**: 
